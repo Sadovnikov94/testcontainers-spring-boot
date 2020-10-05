@@ -27,24 +27,21 @@ import com.github.dockerjava.api.model.Capability;
 import com.playtika.test.kafka.KafkaTopicsConfigurer;
 import com.playtika.test.kafka.checks.KafkaStatusCheck;
 import com.playtika.test.kafka.properties.KafkaConfigurationProperties;
+import com.playtika.test.kafka.properties.ZookeeperConfigurationProperties;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.DependsOn;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.testcontainers.containers.BindMode;
-import org.testcontainers.containers.FixedHostPortGenericContainer;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.utility.MountableFile;
 
-import java.net.URI;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -54,17 +51,23 @@ import static com.playtika.test.common.utils.ContainerUtils.containerLogsConsume
 import static com.playtika.test.common.utils.ContainerUtils.startAndLogTime;
 import static com.playtika.test.kafka.properties.KafkaConfigurationProperties.KAFKA_BEAN_NAME;
 import static java.lang.String.format;
+import static org.testcontainers.containers.KafkaContainer.KAFKA_PORT;
 
 @Slf4j
 @Configuration
 @ConditionalOnProperty(value = "embedded.kafka.enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnBean(ZookeeperContainerConfiguration.class)
-@EnableConfigurationProperties(KafkaConfigurationProperties.class)
+@EnableConfigurationProperties(value = {KafkaConfigurationProperties.class, ZookeeperConfigurationProperties.class})
 public class KafkaContainerConfiguration {
 
     public static final String KAFKA_HOST_NAME = "kafka-broker.testcontainer.docker";
 
-    private static final String DOCKER_HOST = "DOCKER_HOST";
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean(Network.class)
+    public Network kafkaNetwork() {
+        Network network = Network.newNetwork();
+        log.info("Created docker Network id={}", network.getId());
+        return network;
+    }
 
     @Bean
     @ConditionalOnMissingBean
@@ -73,11 +76,10 @@ public class KafkaContainerConfiguration {
     }
 
     @Bean(name = KAFKA_BEAN_NAME, destroyMethod = "stop")
-    @DependsOn("zookeeper")
     public GenericContainer kafka(
             KafkaStatusCheck kafkaStatusCheck,
             KafkaConfigurationProperties kafkaProperties,
-            @Value("${embedded.zookeeper.containerZookeeperConnect}") String containerZookeeperConnect,
+            ZookeeperConfigurationProperties zookeeperProperties,
             ConfigurableEnvironment environment,
             Network network) {
 
@@ -86,36 +88,43 @@ public class KafkaContainerConfiguration {
         int saslPlaintextKafkaExternalPort = kafkaProperties.getSaslPlaintextBrokerPort();
         // https://docs.confluent.io/current/installation/docker/docs/configuration.html search by KAFKA_ADVERTISED_LISTENERS
 
-        log.info("Starting kafka broker. Docker image: {}", kafkaProperties.getDockerImage());
+        String dockerImageVersion = kafkaProperties.getDockerImageVersion();
+        log.info("Starting kafka broker. Docker image version: {}", dockerImageVersion);
 
-        GenericContainer kafka = new FixedHostPortGenericContainer<>(kafkaProperties.getDockerImage())
+        KafkaContainer kafka = new KafkaContainer(dockerImageVersion) {
+            @Override
+            public String getBootstrapServers() {
+                super.getBootstrapServers();
+                return "EXTERNAL_PLAINTEXT://" + getHost() + ":" + getMappedPort(kafkaExternalPort) + "," +
+                        "EXTERNAL_SASL_PLAINTEXT://" + getHost() + ":" + getMappedPort(saslPlaintextKafkaExternalPort) + "," +
+                        "INTERNAL_PLAINTEXT://" + KAFKA_HOST_NAME + ":" + kafkaInternalPort;
+            }
+        }
                 .withLogConsumer(containerLogsConsumer(log))
                 .withCreateContainerCmdModifier(cmd -> cmd.withHostName(KAFKA_HOST_NAME))
                 .withCreateContainerCmdModifier(cmd -> cmd.withCapAdd(Capability.NET_ADMIN))
-                .withEnv("KAFKA_ZOOKEEPER_CONNECT", containerZookeeperConnect)
+                .withEmbeddedZookeeper()
                 .withEnv("KAFKA_BROKER_ID", "-1")
                 //see: https://stackoverflow.com/questions/41868161/kafka-in-kubernetes-cluster-how-to-publish-consume-messages-from-outside-of-kub
                 //see: https://github.com/wurstmeister/kafka-docker/blob/master/README.md
                 // order matters: external then internal since kafka.client.ClientUtils.getPlaintextBrokerEndPoints take first for simple consumers
                 .withEnv("KAFKA_LISTENER_SECURITY_PROTOCOL_MAP",
                         "EXTERNAL_PLAINTEXT:PLAINTEXT," +
-                        "EXTERNAL_SASL_PLAINTEXT:SASL_PLAINTEXT," +
-                        "INTERNAL_PLAINTEXT:PLAINTEXT"
-                )
-                .withEnv("KAFKA_ADVERTISED_LISTENERS",
-                        "EXTERNAL_PLAINTEXT://" + kafkaHost() + ":" + kafkaExternalPort + "," +
-                        "EXTERNAL_SASL_PLAINTEXT://" + kafkaHost() + ":" + saslPlaintextKafkaExternalPort + "," +
-                        "INTERNAL_PLAINTEXT://" + KAFKA_HOST_NAME + ":" + kafkaInternalPort
+                                "EXTERNAL_SASL_PLAINTEXT:SASL_PLAINTEXT," +
+                                "INTERNAL_PLAINTEXT:PLAINTEXT," +
+                                "BROKER:PLAINTEXT"
                 )
                 .withEnv("KAFKA_LISTENERS",
                         "EXTERNAL_PLAINTEXT://0.0.0.0:" + kafkaExternalPort + "," +
-                        "EXTERNAL_SASL_PLAINTEXT://0.0.0.0:" + saslPlaintextKafkaExternalPort + "," +
-                        "INTERNAL_PLAINTEXT://0.0.0.0:" + kafkaInternalPort
+                                "EXTERNAL_SASL_PLAINTEXT://0.0.0.0:" + saslPlaintextKafkaExternalPort + "," +
+                                "INTERNAL_PLAINTEXT://0.0.0.0:" + kafkaInternalPort + "," +
+                                "BROKER://0.0.0.0:9092"
                 )
                 .withEnv("KAFKA_INTER_BROKER_LISTENER_NAME", "INTERNAL_PLAINTEXT")
                 .withEnv("KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS", "1")
                 .withEnv("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", String.valueOf(kafkaProperties.getReplicationFactor()))
                 .withEnv("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "1")
+                .withEnv("KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE", "false")
                 .withEnv("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", "1")
                 .withEnv("KAFKA_LOG_FLUSH_INTERVAL_MS", String.valueOf(kafkaProperties.getLogFlushIntervalMs()))
                 .withEnv("KAFKA_REPLICA_SOCKET_TIMEOUT_MS", String.valueOf(kafkaProperties.getReplicaSocketTimeoutMs()))
@@ -124,16 +133,23 @@ public class KafkaContainerConfiguration {
                 .withEnv("ZOOKEEPER_SASL_ENABLED", "false")
                 .withCopyFileToContainer(MountableFile.forClasspathResource("kafka_server_jaas.conf"), "/etc/kafka/kafka_server_jaas.conf")
                 .withEnv("KAFKA_OPTS", "-Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf")
-                .withExposedPorts(kafkaInternalPort, kafkaExternalPort, saslPlaintextKafkaExternalPort)
-                .withFixedExposedPort(kafkaInternalPort, kafkaInternalPort)
-                .withFixedExposedPort(kafkaExternalPort, kafkaExternalPort)
-                .withFixedExposedPort(saslPlaintextKafkaExternalPort, saslPlaintextKafkaExternalPort)
+                .withEnv("KAFKA_GC_LOG_OPTS", "-Dnogclog")
+                .withExposedPorts(kafkaInternalPort, kafkaExternalPort, saslPlaintextKafkaExternalPort, KAFKA_PORT)
                 .withNetwork(network)
                 .withNetworkAliases(KAFKA_HOST_NAME)
                 .withExtraHost(KAFKA_HOST_NAME, "127.0.0.1")
                 .waitingFor(kafkaStatusCheck)
                 .withStartupTimeout(kafkaProperties.getTimeoutDuration());
 
+        kafkaFileSystemBind(kafkaProperties, kafka);
+        zookeperFileSystemBind(zookeeperProperties, kafka);
+
+        startAndLogTime(kafka);
+        registerKafkaEnvironment(kafka, environment, kafkaProperties);
+        return kafka;
+    }
+
+    private void kafkaFileSystemBind(KafkaConfigurationProperties kafkaProperties, KafkaContainer kafka) {
         KafkaConfigurationProperties.FileSystemBind fileSystemBind = kafkaProperties.getFileSystemBind();
         if (fileSystemBind.isEnabled()) {
             String currentTimestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH-mm-ss-nnnnnnnnn"));
@@ -143,31 +159,24 @@ public class KafkaContainerConfiguration {
 
             kafka.withFileSystemBind(kafkaData, "/var/lib/kafka/data", BindMode.READ_WRITE);
         }
-
-        startAndLogTime(kafka);
-        registerKafkaEnvironment(kafka, environment, kafkaProperties);
-        return kafka;
     }
 
-    private String kafkaHost() {
-        final String dockerHost = System.getenv(DOCKER_HOST);
+    private void zookeperFileSystemBind(ZookeeperConfigurationProperties zookeeperProperties, KafkaContainer kafka) {
+        ZookeeperConfigurationProperties.FileSystemBind zookeeperFileSystemBind = zookeeperProperties.getFileSystemBind();
+        if (zookeeperFileSystemBind.isEnabled()) {
+            String currentTimestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH-mm-ss-nnnnnnnnn"));
 
-        if (dockerHost != null) {
-            try {
-                final String dockerHostHost = new URI(dockerHost).getHost();
+            String dataFolder = zookeeperFileSystemBind.getDataFolder();
+            String zkData = Paths.get(dataFolder, currentTimestamp).toAbsolutePath().toString();
+            log.info("Writing zookeeper data to: {}", zkData);
 
-                log.info("From {}={} parsed Kafka host: {}", DOCKER_HOST, dockerHost, dockerHostHost);
+            String txnLogsFolder = zookeeperFileSystemBind.getTxnLogsFolder();
+            String zkTransactionLogs = Paths.get(txnLogsFolder, currentTimestamp).toAbsolutePath().toString();
+            log.info("Writing zookeeper transaction logs to: {}", zkTransactionLogs);
 
-                return dockerHostHost;
-
-            } catch (Exception e) {
-                log.info("Failed to parse {}={}, use localhost instead: {}", DOCKER_HOST, dockerHost, e.getMessage());
-            }
+            kafka.withFileSystemBind(zkData, "/var/lib/zookeeper/data", BindMode.READ_WRITE)
+                    .withFileSystemBind(zkTransactionLogs, "/var/lib/zookeeper/log", BindMode.READ_WRITE);
         }
-
-        log.info("Use localhost as Kafka host");
-
-        return "localhost";
     }
 
     private void registerKafkaEnvironment(GenericContainer kafka,
@@ -176,16 +185,18 @@ public class KafkaContainerConfiguration {
         LinkedHashMap<String, Object> map = new LinkedHashMap<>();
 
         String host = kafka.getContainerIpAddress();
-        String kafkaBrokerList = format("%s:%d", host, kafkaProperties.getBrokerPort());
+        Integer mappedBrokerPort = kafka.getMappedPort(kafkaProperties.getBrokerPort());
+        String kafkaBrokerList = format("%s:%d", host, mappedBrokerPort);
         map.put("embedded.kafka.brokerList", kafkaBrokerList);
 
-        String saslPlaintextKafkaBrokerList = format("%s:%d", host, kafkaProperties.getSaslPlaintextBrokerPort());
+        Integer mappedSaslBrokerPort = kafka.getMappedPort(kafkaProperties.getSaslPlaintextBrokerPort());
+        String saslPlaintextKafkaBrokerList = format("%s:%d", host, mappedSaslBrokerPort);
         map.put("embedded.kafka.saslPlaintext.brokerList", saslPlaintextKafkaBrokerList);
         map.put("embedded.kafka.saslPlaintext.user", KafkaConfigurationProperties.KAFKA_USER);
         map.put("embedded.kafka.saslPlaintext.password", KafkaConfigurationProperties.KAFKA_PASSWORD);
 
-        Integer mappedPort = kafka.getMappedPort(kafkaProperties.getContainerBrokerPort());
-        String kafkaBrokerListForContainers = format("%s:%d", KAFKA_HOST_NAME, mappedPort);
+        Integer containerPort = kafkaProperties.getContainerBrokerPort();
+        String kafkaBrokerListForContainers = format("%s:%d", KAFKA_HOST_NAME, containerPort);
         map.put("embedded.kafka.containerBrokerList", kafkaBrokerListForContainers);
 
         MapPropertySource propertySource = new MapPropertySource("embeddedKafkaInfo", map);
@@ -197,12 +208,11 @@ public class KafkaContainerConfiguration {
 
     @Bean
     public KafkaTopicsConfigurer kafkaConfigurer(
-            GenericContainer zookeeper,
             GenericContainer kafka,
             KafkaConfigurationProperties kafkaProperties,
-            @Value("${embedded.zookeeper.containerZookeeperConnect}") String containerZookeeperConnect
+            ZookeeperConfigurationProperties zookeeperProperties
     ) {
-        return new KafkaTopicsConfigurer(kafka, containerZookeeperConnect, kafkaProperties);
+        return new KafkaTopicsConfigurer(kafka, zookeeperProperties, kafkaProperties);
     }
 
 }

@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2019 Playtika
+ * Copyright (c) 2020 Playtika
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,6 +29,7 @@ import com.playtika.test.common.properties.InstallPackageProperties;
 import com.playtika.test.common.utils.PackageInstaller;
 import com.playtika.test.common.utils.YumPackageInstaller;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -40,6 +41,7 @@ import java.util.Collections;
 import static com.playtika.test.elasticsearch.ElasticSearchProperties.BEAN_NAME_EMBEDDED_ELASTIC_SEARCH;
 
 @Configuration
+@ConditionalOnExpression("${embedded.containers.enabled:true}")
 @ConditionalOnProperty(value = "embedded.elasticsearch.install.enabled")
 public class EmbeddedElasticSearchTestOperationsAutoConfiguration {
 
@@ -60,7 +62,7 @@ public class EmbeddedElasticSearchTestOperationsAutoConfiguration {
 
     @Bean
     public NetworkTestOperations elasticSearchNetworkTestOperations(@Qualifier(BEAN_NAME_EMBEDDED_ELASTIC_SEARCH)
-                                                                                ElasticsearchContainer elasticSearch) {
+                                                                            ElasticsearchContainer elasticSearch) {
         return new DefaultNetworkTestOperations(elasticSearch);
     }
 }

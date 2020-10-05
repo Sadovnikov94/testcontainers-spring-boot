@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2018 Playtika
+ * Copyright (c) 2020 Playtika
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -33,6 +33,7 @@ import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.AutoConfigureOrder;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,6 +43,7 @@ import static com.playtika.test.couchbase.CouchbaseProperties.BEAN_NAME_EMBEDDED
 @Slf4j
 @Configuration
 @AutoConfigureOrder
+@ConditionalOnExpression("${embedded.containers.enabled:true}")
 @ConditionalOnProperty(name = "embedded.couchbase.enabled", matchIfMissing = true)
 @AutoConfigureAfter(name = "org.springframework.boot.autoconfigure.data.couchbase.CouchbaseDataAutoConfiguration")
 public class EmbeddedCouchbaseDependenciesAutoConfiguration {
@@ -51,7 +53,7 @@ public class EmbeddedCouchbaseDependenciesAutoConfiguration {
     public static class CouchbaseBucketDependencyContext {
 
         @Bean
-        public BeanFactoryPostProcessor bucketDependencyPostProcessor() {
+        public static BeanFactoryPostProcessor bucketDependencyPostProcessor() {
             return new DependsOnPostProcessor(Bucket.class, new String[]{BEAN_NAME_EMBEDDED_COUCHBASE});
         }
     }
@@ -61,7 +63,7 @@ public class EmbeddedCouchbaseDependenciesAutoConfiguration {
     public static class CouchbaseAsyncBucketDependencyContext {
 
         @Bean
-        public BeanFactoryPostProcessor asyncBucketDependencyPostProcessor() {
+        public static BeanFactoryPostProcessor asyncBucketDependencyPostProcessor() {
             return new DependsOnPostProcessor(AsyncBucket.class, new String[]{BEAN_NAME_EMBEDDED_COUCHBASE});
         }
     }
@@ -71,7 +73,7 @@ public class EmbeddedCouchbaseDependenciesAutoConfiguration {
     public static class CouchbaseClientDependencyContext {
 
         @Bean
-        public BeanFactoryPostProcessor couchbaseClientDependencyPostProcessor() {
+        public static BeanFactoryPostProcessor couchbaseClientDependencyPostProcessor() {
             return new DependsOnPostProcessor(CouchbaseClient.class, new String[]{BEAN_NAME_EMBEDDED_COUCHBASE});
         }
     }
@@ -82,7 +84,7 @@ public class EmbeddedCouchbaseDependenciesAutoConfiguration {
     public static class CouchbaseClusterDependencyContext {
 
         @Bean
-        public BeanFactoryPostProcessor couchbaseClusterDependencyPostProcessor() {
+        public static BeanFactoryPostProcessor couchbaseClusterDependencyPostProcessor() {
             return new DependsOnPostProcessor(Cluster.class, new String[]{BEAN_NAME_EMBEDDED_COUCHBASE});
         }
     }

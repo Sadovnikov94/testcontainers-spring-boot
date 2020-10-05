@@ -7,14 +7,10 @@
     <parent>
         <artifactId>testcontainers-spring-boot</artifactId>
         <groupId>com.playtika.testcontainers</groupId>
-        <version>1.70-SNAPSHOT</version>
+        <version>1.82</version>
     </parent>
 
     <artifactId>embedded-google-pubsub</artifactId>
-
-    <properties>
-        <google-cloud-pubsub.version>1.106.0</google-cloud-pubsub.version>
-    </properties>
 
     <dependencies>
         <dependency>
@@ -24,12 +20,13 @@
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-gcp-starter-pubsub</artifactId>
+            <exclusions>
+                <exclusion>
+                    <artifactId>commons-logging</artifactId>
+                    <groupId>commons-logging</groupId>
+                </exclusion>
+            </exclusions>
             <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>com.google.cloud</groupId>
-            <artifactId>google-cloud-pubsub</artifactId>
-            <version>${google-cloud-pubsub.version}</version>
         </dependency>
     </dependencies>
 </project>

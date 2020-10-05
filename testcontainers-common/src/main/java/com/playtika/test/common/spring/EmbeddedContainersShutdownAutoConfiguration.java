@@ -23,44 +23,43 @@
  */
 package com.playtika.test.common.spring;
 
-import com.playtika.test.common.properties.ContainersShutdownProperties;
+import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
+
+import java.util.List;
+
+import com.playtika.test.common.properties.TestcontainersProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.AutoConfigureOrder;
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.testcontainers.containers.GenericContainer;
-
-import java.util.Arrays;
 
 //TODO: Drop this workaround after proper fix available https://github.com/spring-cloud/spring-cloud-commons/issues/752
 
 @Slf4j
 @Configuration
 @AutoConfigureOrder(value = Ordered.LOWEST_PRECEDENCE)
+@ConditionalOnProperty(prefix = "embedded.containers", name = "enabled", matchIfMissing = true)
+@EnableConfigurationProperties(TestcontainersProperties.class)
 public class EmbeddedContainersShutdownAutoConfiguration {
 
     public static final String ALL_CONTAINERS = "allContainers";
 
     @Bean(name = ALL_CONTAINERS)
     public AllContainers allContainers(@Autowired(required = false) DockerPresenceMarker dockerAvailable,
-                                       GenericContainer[] allContainers,
-                                       ContainersShutdownProperties containersShutdownProperties) {
+                                       @Autowired(required = false) GenericContainer[] allContainers,
+                                       TestcontainersProperties testcontainersProperties) {
         //Docker presence marker is not available == no spring cloud
         if (dockerAvailable == null)
             throw new NoDockerPresenceMarkerException("No docker presence marker available. " +
                     "Did you add spring cloud starter into classpath?");
 
-        return new AllContainers(Arrays.asList(allContainers), containersShutdownProperties);
-    }
-
-    @Bean
-    @ConfigurationProperties("embedded.containers")
-    public ContainersShutdownProperties containersShutdownProperties() {
-        ContainersShutdownProperties properties = new ContainersShutdownProperties();
-        properties.setForceShutdown(false);
-        return properties;
+        List<GenericContainer> containers = allContainers != null ? asList(allContainers) : emptyList();
+        return new AllContainers(containers, testcontainersProperties);
     }
 }

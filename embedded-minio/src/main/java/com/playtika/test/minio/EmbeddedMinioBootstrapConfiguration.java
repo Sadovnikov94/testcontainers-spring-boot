@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2019 Playtika
+ * Copyright (c) 2020 Playtika
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,12 +21,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-
-
 package com.playtika.test.minio;
 
 import com.github.dockerjava.api.model.Capability;
+import com.playtika.test.common.spring.DockerPresenceBootstrapConfiguration;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -42,8 +43,10 @@ import static com.playtika.test.common.utils.ContainerUtils.startAndLogTime;
 import static com.playtika.test.minio.MinioProperties.MINIO_BEAN_NAME;
 
 @Slf4j
-@ConditionalOnProperty(value = "embedded.minio.enabled", matchIfMissing = true)
 @Configuration
+@ConditionalOnExpression("${embedded.containers.enabled:true}")
+@AutoConfigureAfter(DockerPresenceBootstrapConfiguration.class)
+@ConditionalOnProperty(value = "embedded.minio.enabled", matchIfMissing = true)
 public class EmbeddedMinioBootstrapConfiguration {
 
     @Bean
@@ -78,7 +81,8 @@ public class EmbeddedMinioBootstrapConfiguration {
                         .withCommand("server", properties.directory)
                         .withCreateContainerCmdModifier(cmd -> cmd.withCapAdd(Capability.NET_ADMIN))
                         .waitingFor(minioWaitStrategy)
-                        .withStartupTimeout(properties.getTimeoutDuration());
+                        .withStartupTimeout(properties.getTimeoutDuration())
+                        .withReuse(properties.isReuseContainer());
 
         startAndLogTime(minio);
         registerEnvironment(minio, environment, properties);
