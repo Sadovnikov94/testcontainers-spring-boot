@@ -7,13 +7,13 @@
     <parent>
         <artifactId>testcontainers-spring-boot</artifactId>
         <groupId>com.playtika.testcontainers</groupId>
-        <version>1.82</version>
+        <version>1.83-SNAPSHOT</version>
     </parent>
 
     <artifactId>embedded-kafka</artifactId>
 
     <properties>
-        <camel.version>3.4.3</camel.version>
+        <camel.version>3.5.0</camel.version>
         <kafka-clients.version>2.6.0</kafka-clients.version>
     </properties>
 

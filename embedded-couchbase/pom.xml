@@ -7,14 +7,14 @@
     <parent>
         <artifactId>testcontainers-spring-boot</artifactId>
         <groupId>com.playtika.testcontainers</groupId>
-        <version>1.82</version>
+        <version>1.83-SNAPSHOT</version>
     </parent>
 
     <artifactId>embedded-couchbase</artifactId>
 
     <properties>
         <couchbase-client-1.x.version>1.4.13</couchbase-client-1.x.version>
-        <okhttp.version>4.8.1</okhttp.version>
+        <okhttp.version>4.9.0</okhttp.version>
     </properties>
 
     <dependencies>
